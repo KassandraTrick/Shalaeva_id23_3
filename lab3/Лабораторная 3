@@ -143,77 +143,110 @@ def create_float_edit_panel(flt):  # Функция для создания па
 
     return mass_slider, volume_slider, mass_label, volume_label  # Возвращаем созданные элементы для дальнейшего использования
 
-# Main loop
-running = True  # Флаг для основной петли игры
-time = 0  # Время игры
-while running:  # Основной цикл игры
-    screen.fill((135, 206, 235))  # Закрашиваем экран в цвет неба
-    time += 1 / FPS  # Увеличиваем время на основе частоты кадров
-    delta_time = clock.tick(FPS) / 1000.0  # Получаем время, прошедшее с последнего кадра
+# Добавляем кнопку для удаления всех слайдеров волн
+clear_sliders_button = pygame_gui.elements.UIButton(
+    relative_rect=pygame.Rect(380, 550, 200, 30),
+    text='Убрать слайдеры',
+    manager=manager
+)
 
-    # Update all floats
-    for flt in floats:  # Обновляем все поплавки
+# Добавляем кнопку для восстановления всех слайдеров волн
+restore_sliders_button = pygame_gui.elements.UIButton(
+    relative_rect=pygame.Rect(600, 550, 200, 30),
+    text='Добавить слайдеры',
+    manager=manager
+)
+
+# Основной цикл
+running = True
+time = 0
+sliders_removed = False  # Флаг для отслеживания состояния слайдеров
+
+while running:
+    screen.fill((135, 206, 235))
+    time += 1 / FPS
+    delta_time = clock.tick(FPS) / 1000.0
+
+    # Обновление всех поплавков
+    for flt in floats:
         flt.update(time)
 
-    # Draw waves and floats
-    for wave in waves:  # Рисуем все волны
-        for x in range(0, SCREEN_WIDTH, 2):  # Проходим по всем горизонтальным точкам экрана
-            y = int(wave.get_y(x, time)) - 10  # Получаем вертикальную позицию волны
-            pygame.draw.circle(screen, (0, 0, 255), (x, y), 2)  # Рисуем маленький круг для волны
+    # Рисование волн и поплавков
+    for wave in waves:
+        for x in range(0, SCREEN_WIDTH, 2):
+            y = int(wave.get_y(x, time)) - 10
+            pygame.draw.circle(screen, (0, 0, 255), (x, y), 2)
 
-    for flt in floats:  # Рисуем все поплавки
-        pygame.draw.circle(screen, (255, 69, 0), (int(flt.x), int(flt.y)), flt.radius)  # Рисуем поплавок как круг
+    for flt in floats:
+        pygame.draw.circle(screen, (255, 69, 0), (int(flt.x), int(flt.y)), flt.radius)
 
-    for event in pygame.event.get():  # Обрабатываем все события
-        if event.type == pygame.QUIT:  # Если окно закрывается
-            running = False  # Завершаем программу
-        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:  # Если кликнута левая кнопка мыши
-            if add_wave_button.rect.collidepoint(event.pos):  # Если клик на кнопку добавления волны
-                y_offset = len(waves) * 100 + 50  # Сдвигаем новую волну по вертикали
-                wave = Wave(amplitude=50, period=200, y_offset=y_offset)  # Создаем новую волну
-                waves.append(wave)  # Добавляем волну в список
-                floats.extend([Float(mass=1.0, volume=1.0, x=100 + i * 100, wave=wave) for i in range(5)])  # Добавляем поплавки для этой волны
-                create_wave_sliders(wave, len(waves) - 1)  # Создаем слайдеры для этой волны
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if add_wave_button.rect.collidepoint(event.pos):
+                # Добавить новую волну
+                y_offset = len(waves) * 100 + 50
+                wave = Wave(amplitude=50, period=200, y_offset=y_offset)
+                waves.append(wave)
+                floats.extend([Float(mass=1.0, volume=1.0, x=100 + i * 100, wave=wave) for i in range(5)])
+                if not sliders_removed:  # Если слайдеры активны, создаём их для новой волны
+                    create_wave_sliders(wave, len(waves) - 1)
 
-            elif remove_wave_button.rect.collidepoint(event.pos) and waves:  # Если клик на кнопку удаления волны
-                last_wave = waves.pop()  # Удаляем последнюю волну
-                floats = [flt for flt in floats if flt.wave != last_wave]  # Удаляем поплавки, привязанные к этой волне
+            elif remove_wave_button.rect.collidepoint(event.pos) and waves:
+                # Удалить последнюю волну и её элементы
+                last_wave = waves.pop()
+                floats = [flt for flt in floats if flt.wave != last_wave]
 
-                # Удаляем слайдеры, связанные с удаленной волной
                 wave_slider_objects_to_remove = [obj for obj in wave_slider_objects if obj['wave'] == last_wave]
                 for obj in wave_slider_objects_to_remove:
-                    obj['amplitude_slider'].kill()  # Удаляем слайдеры
+                    obj['amplitude_slider'].kill()
                     obj['period_slider'].kill()
-                wave_slider_objects = [obj for obj in wave_slider_objects if obj['wave'] != last_wave]  # Обновляем список слайдеров
+                wave_slider_objects = [obj for obj in wave_slider_objects if obj['wave'] != last_wave]
 
-                # Обновляем позиции оставшихся слайдеров
                 for i, obj in enumerate(wave_slider_objects):
                     obj['amplitude_slider'].rect.y = 10 + i * 40
                     obj['period_slider'].rect.y = 10 + i * 40
 
-            # Проверяем, был ли клик по поплавку
+            elif clear_sliders_button.rect.collidepoint(event.pos):
+                # Удалить все слайдеры
+                for obj in wave_slider_objects:
+                    obj['amplitude_slider'].kill()
+                    obj['period_slider'].kill()
+                wave_slider_objects.clear()
+                sliders_removed = True  # Слайдеры убраны
+
+            elif restore_sliders_button.rect.collidepoint(event.pos):
+                # Восстановить все слайдеры
+                if sliders_removed:
+                    wave_slider_objects.clear()  # Очистить, чтобы создать заново
+                    for index, wave in enumerate(waves):
+                        create_wave_sliders(wave, index)
+                    sliders_removed = False  # Слайдеры восстановлены
+
             for flt in floats:
-                if flt.is_clicked(event.pos):  # Если поплавок был кликнут
-                    sliders = create_float_edit_panel(flt)  # Открываем панель редактирования для поплавка
+                if flt.is_clicked(event.pos):
+                    sliders = create_float_edit_panel(flt)
 
-        manager.process_events(event)  # Обрабатываем события интерфейса
+        manager.process_events(event)
 
-    # Update wave parameters from sliders
-    for i, wave in enumerate(waves):  # Обновляем параметры волн из слайдеров
-        wave.amplitude = wave_slider_objects[i]['amplitude_slider'].get_current_value()
-        wave.period = wave_slider_objects[i]['period_slider'].get_current_value()
+    # Обновление параметров волн по слайдерам
+    if not sliders_removed:
+        for i, wave in enumerate(waves):
+            wave.amplitude = wave_slider_objects[i]['amplitude_slider'].get_current_value()
+            wave.period = wave_slider_objects[i]['period_slider'].get_current_value()
 
-    # Update float parameters from sliders
-    if float_edit_panel:  # Если панель редактирования поплавка открыта
-        sliders[2].set_text(f"Масса: {sliders[0].get_current_value():.1f}")  # Обновляем текст метки массы
-        sliders[3].set_text(f"Объем: {sliders[1].get_current_value():.1f}")  # Обновляем текст метки объема
-        selected_float.mass = sliders[0].get_current_value()  # Обновляем массу поплавка
-        selected_float.volume = sliders[1].get_current_value()  # Обновляем объем поплавка
-        selected_float.radius = max(5, int(selected_float.volume * 10))  # Обновляем радиус поплавка в зависимости от объема
+    # Обновление параметров поплавков по слайдерам
+    if float_edit_panel:
+        sliders[2].set_text(f"Mass: {sliders[0].get_current_value():.1f}")
+        sliders[3].set_text(f"Volume: {sliders[1].get_current_value():.1f}")
+        selected_float.mass = sliders[0].get_current_value()
+        selected_float.volume = sliders[1].get_current_value()
+        selected_float.radius = max(5, int(selected_float.volume * 10))
 
-    # Обновление интерфейса и отображение
-    manager.update(delta_time)  # Обновляем все элементы интерфейса
-    manager.draw_ui(screen)  # Отображаем интерфейс
-    pygame.display.flip()  # Обновляем экран
+    # Обновление UI и отображение
+    manager.update(delta_time)
+    manager.draw_ui(screen)
+    pygame.display.flip()
 
-pygame.quit()  # Завершаем работу с Pygame
+pygame.quit()
