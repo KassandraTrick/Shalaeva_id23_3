@@ -1,252 +1,355 @@
-import pygame  # Импорт библиотеки Pygame для работы с графикой и событиями
-import pygame_gui  # Импорт библиотеки для работы с графическим интерфейсом (UI)
-import math  # Импорт библиотеки для математических операций
-
-# Screen parameters
-SCREEN_WIDTH = 800  # Устанавливаем ширину экрана
-SCREEN_HEIGHT = 600  # Устанавливаем высоту экрана
-FPS = 60  # Частота кадров в секунду (скорость обновления экрана)
-
-# Physical constants
-GRAVITY = 9.81  # Ускорение свободного падения на Земле (м/с^2)
-
-# Wave and float parameters
-WAVE_SPEED = 0.05  # Скорость изменения волны, на которую влияет время
-
-# Initialize Pygame
-pygame.init()  # Инициализируем Pygame
-pygame.font.init()  # Инициализируем шрифты Pygame
-screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))  # Создаем окно с указанными размерами
-pygame.display.set_caption("Волны")  # Устанавливаем заголовок окна
-clock = pygame.time.Clock()  # Создаем объект для отслеживания времени (FPS)
-
-# Initialize pygame_gui
-manager = pygame_gui.UIManager((SCREEN_WIDTH, SCREEN_HEIGHT))  # Инициализируем менеджер интерфейса для UI
-
-# Wave class
-class Wave:
-    def __init__(self, amplitude, period, y_offset=0):  # Конструктор класса для волны
-        self.amplitude = amplitude  # Амплитуда волны
-        self.period = period  # Период волны
-        self.y_offset = y_offset  # Вертикальное смещение волны
-
-    def get_y(self, x, time):  # Метод для расчета вертикальной позиции волны на заданной горизонтальной позиции x и времени
-        return self.y_offset + self.amplitude * math.sin(2 * math.pi * (x / self.period + time * WAVE_SPEED))  # Возвращаем значение y для данной волны
-
-# Float class
-class Float:
-    def __init__(self, mass, volume, x, wave):  # Конструктор класса поплавка
-        self.mass = mass  # Масса поплавка
-        self.volume = volume  # Объем поплавка
-        self.x = x  # Горизонтальная позиция поплавка
-        self.y = wave.y_offset  # Вертикальная позиция поплавка (сначала равна смещению волны)
-        self.wave = wave  # Привязка поплавка к волне
-        self.radius = max(5, int(self.volume * 10))  # Радиус поплавка зависит от его объема (не менее 5)
-
-    def update(self, time):  # Метод для обновления позиции поплавка в зависимости от времени
-        wave_y = self.wave.get_y(self.x, time)  # Получаем вертикальную позицию волны для текущей горизонтальной позиции
-        weight_force = self.mass * GRAVITY  # Рассчитываем силу тяжести на поплавок
-        buoyancy_force = self.volume * GRAVITY  # Рассчитываем силу Архимеда на поплавок
-        net_force = buoyancy_force - weight_force  # Суммарная сила
-
-        if net_force >= 0:  # Если сила Архимеда больше или равна силе тяжести
-            self.y = wave_y - abs(net_force) * 0.5  # Поплавок будет подниматься над волной
-        else:  # Если сила тяжести больше
-            self.y = wave_y + abs(net_force) * 0.5  # Поплавок будет опускаться ниже волны
-
-    def is_clicked(self, mouse_pos):  # Метод для проверки, был ли клик по поплавку
-        return math.hypot(mouse_pos[0] - self.x, mouse_pos[1] - self.y) <= self.radius  # Проверка, находится ли мышь внутри поплавка
-
-# Initialize data
-waves = []  # Список волн
-floats = []  # Список поплавков
-
-# UI elements for wave sliders
-wave_amplitude_sliders = []  # Список слайдеров для амплитуды волн
-wave_period_sliders = []  # Список слайдеров для периода волн
-wave_slider_objects = []  # Список для хранения слайдеров и их ассоциированных волн
-
-def create_wave_sliders(wave, index):  # Функция для создания слайдеров для каждой волны
-    amplitude_slider = pygame_gui.elements.UIHorizontalSlider(  # Создание слайдера для амплитуды
-        pygame.Rect((20, 10 + index * 40), (250, 15)),
-        start_value=wave.amplitude,
-        value_range=(10, 100),
-        manager=manager
-    )
-    period_slider = pygame_gui.elements.UIHorizontalSlider(  # Создание слайдера для периода
-        pygame.Rect((300, 10 + index * 40), (250, 15)),
-        start_value=wave.period,
-        value_range=(50, 400),
-        manager=manager
-    )
-
-    # Сохраняем слайдеры с ассоциированной волной
-    wave_slider_objects.append({
-        'wave': wave,
-        'amplitude_slider': amplitude_slider,
-        'period_slider': period_slider
-    })
-
-# Create buttons for adding and removing waves
-add_wave_button = pygame_gui.elements.UIButton(  # Создание кнопки для добавления новой волны
-    relative_rect=pygame.Rect(20, 550, 150, 30),
-    text='Добавить волну',
-    manager=manager
+import sys
+import numpy as np
+import random
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout,
+    QLabel, QSlider, QSpinBox, QPushButton, QDialog, QMenuBar
 )
+from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtGui import QPainter, QColor
+from PyQt5.QtGui import QPixmap
 
-remove_wave_button = pygame_gui.elements.UIButton(  # Создание кнопки для удаления последней волны
-    relative_rect=pygame.Rect(200, 550, 150, 30),
-    text='Удалить волну',
-    manager=manager
-)
 
-# Create an edit panel for floats
-float_edit_panel = None  # Панель редактирования поплавков
-selected_float = None  # Выбранный поплавок
+class WaveSimulation(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Wave Simulation")
+        self.setGeometry(100, 100, 800, 600)
 
-def create_float_edit_panel(flt):  # Функция для создания панели редактирования поплавка
-    global float_edit_panel, selected_float
-    selected_float = flt  # Устанавливаем выбранный поплавок
-    float_edit_panel = pygame_gui.elements.UIWindow(  # Создаем окно для редактирования поплавка
-        rect=pygame.Rect((200, 150), (400, 300)),
-        manager=manager,
-        window_display_title="Редактировать параметры поплавка"
-    )
+        self.central_widget = QWidget(self)
+        self.setCentralWidget(self.central_widget)
 
-    mass_slider = pygame_gui.elements.UIHorizontalSlider(  # Создание слайдера для массы поплавка
-        pygame.Rect((50, 50), (300, 50)),
-        start_value=flt.mass,
-        value_range=(0.1, 10.0),
-        manager=manager,
-        container=float_edit_panel
-    )
-    volume_slider = pygame_gui.elements.UIHorizontalSlider(  # Создание слайдера для объема поплавка
-        pygame.Rect((50, 150), (300, 50)),
-        start_value=flt.volume,
-        value_range=(0.1, 5.0),
-        manager=manager,
-        container=float_edit_panel
-    )
+        self.num_waves = 3
+        self.waves = [
+            {"amplitude": 50, "frequency": 0.01, "speed": 2, "y_offset": 150, "flotes": [{"x": 200, "y": 300, "mass": 5, "volume": 10}]},
+            {"amplitude": 30, "frequency": 0.03, "speed": 1.5, "y_offset": 300, "flotes": [{"x": 500, "y": 350, "mass": 5, "volume": 10}]},
+            {"amplitude": 70, "frequency": 0.02, "speed": 1, "y_offset": 450, "flotes": [{"x": 700, "y": 250, "mass": 5, "volume": 10}]}
+        ]
 
-    mass_label = pygame_gui.elements.UILabel(  # Подпись для слайдера массы
-        pygame.Rect((50, 20), (300, 30)),
-        text=f"Масса: {flt.mass:.1f}",
-        manager=manager,
-        container=float_edit_panel
-    )
-    volume_label = pygame_gui.elements.UILabel(  # Подпись для слайдера объема
-        pygame.Rect((50, 120), (300, 30)),
-        text=f"Объем: {flt.volume:.1f}",
-        manager=manager,
-        container=float_edit_panel
-    )
+        self.sun_position = None
+        self.fishes = []
+        self.fish_image = QPixmap("fish.png")
+        self.sun_image = QPixmap("sun.png")
+        self.generate_fishes(10)
 
-    return mass_slider, volume_slider, mass_label, volume_label  # Возвращаем созданные элементы для дальнейшего использования
+        self.selected_wave_index = 0
+        self.selected_flote = None
+        self.dragged_wave = None
+        self.drag_start_y = 0
 
-# Добавляем кнопку для удаления всех слайдеров волн
-clear_sliders_button = pygame_gui.elements.UIButton(
-    relative_rect=pygame.Rect(380, 550, 200, 30),
-    text='Убрать слайдеры',
-    manager=manager
-)
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update)
+        self.timer.start(50)
 
-# Добавляем кнопку для восстановления всех слайдеров волн
-restore_sliders_button = pygame_gui.elements.UIButton(
-    relative_rect=pygame.Rect(600, 550, 200, 30),
-    text='Добавить слайдеры',
-    manager=manager
-)
+        self.time = 0
 
-# Основной цикл
-running = True
-time = 0
-sliders_removed = False  # Флаг для отслеживания состояния слайдеров
+        self.settings_window = SettingsWindow(self)
+        self.flote_settings_window = FloteSettingsWindow(self)
 
-while running:
-    screen.fill((135, 206, 235))
-    time += 1 / FPS
-    delta_time = clock.tick(FPS) / 1000.0
+        self.init_menu()
 
-    # Обновление всех поплавков
-    for flt in floats:
-        flt.update(time)
+    def generate_fishes(self, count):
+        for _ in range(count):
+            fish = {
+                "x": random.randint(0, self.width()),
+                "y": random.randint(0, self.height()),
+                "speed": random.uniform(1, 5),
+                "size": random.randint(10, 30),
+            }
+            self.fishes.append(fish)
 
-    # Рисование волн и поплавков
-    for wave in waves:
-        for x in range(0, SCREEN_WIDTH, 2):
-            y = int(wave.get_y(x, time)) - 10
-            pygame.draw.circle(screen, (0, 0, 255), (x, y), 2)
+    def init_menu(self):
+        menu_bar = QMenuBar(self)
+        settings_action = menu_bar.addAction("Настройки")
+        settings_action.triggered.connect(self.show_settings)
+        self.setMenuBar(menu_bar)
 
-    for flt in floats:
-        pygame.draw.circle(screen, (255, 69, 0), (int(flt.x), int(flt.y)), flt.radius)
+    def show_settings(self):
+        self.settings_window.show()
 
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            if add_wave_button.rect.collidepoint(event.pos):
-                # Добавить новую волну
-                y_offset = len(waves) * 100 + 50
-                wave = Wave(amplitude=50, period=200, y_offset=y_offset)
-                waves.append(wave)
-                floats.extend([Float(mass=1.0, volume=1.0, x=100 + i * 100, wave=wave) for i in range(5)])
-                if not sliders_removed:  # Если слайдеры активны, создаём их для новой волны
-                    create_wave_sliders(wave, len(waves) - 1)
+    def add_sun(self):
+        self.sun_position = (self.width() - 150, 50)
 
-            elif remove_wave_button.rect.collidepoint(event.pos) and waves:
-                # Удалить последнюю волну и её элементы
-                last_wave = waves.pop()
-                floats = [flt for flt in floats if flt.wave != last_wave]
+    def select_wave(self, index):
 
-                wave_slider_objects_to_remove = [obj for obj in wave_slider_objects if obj['wave'] == last_wave]
-                for obj in wave_slider_objects_to_remove:
-                    obj['amplitude_slider'].kill()
-                    obj['period_slider'].kill()
-                wave_slider_objects = [obj for obj in wave_slider_objects if obj['wave'] != last_wave]
+        self.selected_wave_index = index
+        self.settings_window.amplitude_slider.setValue(self.waves[index]["amplitude"])
+        self.settings_window.frequency_slider.setValue(int(self.waves[index]["frequency"] * 1000))
 
-                for i, obj in enumerate(wave_slider_objects):
-                    obj['amplitude_slider'].rect.y = 10 + i * 40
-                    obj['period_slider'].rect.y = 10 + i * 40
+    def change_amplitude(self, value):
+        self.waves[self.selected_wave_index]["amplitude"] = value
 
-            elif clear_sliders_button.rect.collidepoint(event.pos):
-                # Удалить все слайдеры
-                for obj in wave_slider_objects:
-                    obj['amplitude_slider'].kill()
-                    obj['period_slider'].kill()
-                wave_slider_objects.clear()
-                sliders_removed = True  # Слайдеры убраны
+    def change_frequency(self, value):
+        self.waves[self.selected_wave_index]["frequency"] = value / 1000.0
 
-            elif restore_sliders_button.rect.collidepoint(event.pos):
-                # Восстановить все слайдеры
-                if sliders_removed:
-                    wave_slider_objects.clear()  # Очистить, чтобы создать заново
-                    for index, wave in enumerate(waves):
-                        create_wave_sliders(wave, index)
-                    sliders_removed = False  # Слайдеры восстановлены
+    def add_wave(self):
+        new_wave = {
+            "amplitude": 50,
+            "frequency": 0.02,
+            "speed": 1.5,
+            "y_offset": random.randint(50, 1000),
+            "flotes": [{"x": 400, "y": 300, "mass": 5, "volume": 10}]
+        }
+        self.waves.append(new_wave)
+        self.settings_window.wave_index_spinbox.setRange(0, len(self.waves) - 1)
 
-            for flt in floats:
-                if flt.is_clicked(event.pos):
-                    sliders = create_float_edit_panel(flt)
+    def remove_selected_wave(self):
+        selected_wave_index = self.settings_window.wave_index_spinbox.value()
 
-        manager.process_events(event)
+        if len(self.waves) > 1:
+            self.waves.pop(selected_wave_index)
 
-    # Обновление параметров волн по слайдерам
-    if not sliders_removed:
-        for i, wave in enumerate(waves):
-            wave.amplitude = wave_slider_objects[i]['amplitude_slider'].get_current_value()
-            wave.period = wave_slider_objects[i]['period_slider'].get_current_value()
+            self.settings_window.wave_index_spinbox.setRange(0, len(self.waves) - 1)
 
-    # Обновление параметров поплавков по слайдерам
-    if float_edit_panel:
-        sliders[2].set_text(f"Mass: {sliders[0].get_current_value():.1f}")
-        sliders[3].set_text(f"Volume: {sliders[1].get_current_value():.1f}")
-        selected_float.mass = sliders[0].get_current_value()
-        selected_float.volume = sliders[1].get_current_value()
-        selected_float.radius = max(5, int(selected_float.volume * 10))
+            if selected_wave_index < len(self.waves):
+                self.selected_wave_index = selected_wave_index
+            else:
+                self.selected_wave_index = len(self.waves) - 1
 
-    # Обновление UI и отображение
-    manager.update(delta_time)
-    manager.draw_ui(screen)
-    pygame.display.flip()
+            self.select_wave(self.selected_wave_index)
 
-pygame.quit()
+    def remove_all_fishes(self):
+        self.fishes.clear()
+
+    def mousePressEvent(self, event):
+        x, y = event.x(), event.y()
+        capture_range = 30
+
+        for wave in self.waves:
+            for flote in wave["flotes"]:
+                radius = int(flote["volume"] * 2)
+                if (x - flote["x"]) ** 2 + (y - flote["y"]) ** 2 <= radius ** 2:
+                    self.selected_flote = flote
+                    self.flote_settings_window.show_flote_settings(flote)
+                    return
+
+        for index, wave in enumerate(self.waves):
+            y_offset = wave["y_offset"]
+            amplitude = wave["amplitude"]
+            if abs(y - (y_offset + amplitude * np.sin(0.01 * x + wave["speed"] * self.time))) <= capture_range:
+                self.dragged_wave = wave
+                self.drag_start_y = y
+                return
+
+    def mouseMoveEvent(self, event):
+        if self.dragged_wave:
+            delta_y = event.y() - self.drag_start_y
+            self.dragged_wave["y_offset"] += delta_y
+            self.drag_start_y = event.y()
+
+    def mouseReleaseEvent(self, event):
+        if self.dragged_wave:
+            self.dragged_wave = None
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        self.draw_fishes(painter)
+        if self.sun_position:
+            self.draw_sun(painter)
+
+        self.draw_waves(painter)
+        self.move_flotes()
+        self.draw_flotes(painter)
+
+    def draw_waves(self, painter):
+        width = self.width()
+        for index, wave in enumerate(self.waves):
+            amplitude = wave["amplitude"]
+            frequency = wave["frequency"]
+            speed = wave["speed"]
+            y_offset = wave["y_offset"]
+
+            if self.dragged_wave == wave:
+                painter.setPen(QColor(255, 0, 0, 200))
+            else:
+                painter.setPen(QColor(0, 0, 255, 200))
+
+            prev_y = y_offset + amplitude * np.sin(frequency * 0 + speed * self.time)
+            for x in range(1, width):
+                y = y_offset + amplitude * np.sin(frequency * x + speed * self.time)
+                painter.drawLine(x - 1, int(prev_y), x, int(y))
+                prev_y = y
+
+    def draw_flotes(self, painter):
+        for wave in self.waves:
+            for flote in wave["flotes"]:
+                radius = int(flote["volume"] * 2)
+                x = flote["x"]
+                y = flote["y"]
+                painter.setBrush(QColor(255, 20, 147))
+                painter.drawEllipse(x - radius, y - radius, radius * 2, radius * 2)
+
+    def draw_fishes(self, painter):
+        for fish in self.fishes:
+            x = int(fish["x"])
+            y = int(fish["y"])
+            size = int(fish["size"])
+            scaled_image = self.fish_image.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            painter.drawPixmap(x, y, scaled_image)
+
+    def draw_sun(self, painter):
+        if self.sun_position:
+            x, y = self.sun_position
+
+            scaled_sun_image = self.sun_image.scaled(100, 100, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+
+            painter.drawPixmap(x, y, scaled_sun_image)
+
+    def move_fishes(self):
+        for fish in self.fishes:
+            fish["x"] += fish["speed"]
+            if fish["x"] > self.width():
+                fish["x"] = -fish["size"]
+
+    def move_flotes(self):
+        for wave in self.waves:
+            amplitude = wave["amplitude"]
+            frequency = wave["frequency"]
+            speed = wave["speed"]
+            y_offset = wave["y_offset"]
+            for flote in wave["flotes"]:
+                wave_position = amplitude * np.sin(frequency * flote["x"] + speed * self.time)
+                flote["y"] = y_offset + int(wave_position + flote["mass"] * 2)
+
+    def update(self):
+        self.time += 0.05
+        self.move_fishes()
+        super().update()
+
+    def remove_flote(self):
+        if self.selected_flote:
+            for wave in self.waves:
+                if self.selected_flote in wave["flotes"]:
+                    wave["flotes"].remove(self.selected_flote)
+                    break
+            self.selected_flote = None
+            self.flote_settings_window.close()
+
+    def add_random_flotes(self):
+        for wave in self.waves:
+            new_flote = {
+                "x": random.randint(50, self.width() - 50),
+                "y": wave["y_offset"],
+                "mass": random.randint(1, 20),
+                "volume": random.randint(5, 20),
+            }
+            wave["flotes"].append(new_flote)
+
+    def remove_all_flotes(self):
+        for wave in self.waves:
+            wave["flotes"].clear()
+
+
+class SettingsWindow(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Настройки волн")
+        self.setGeometry(1100, 600, 300, 300)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
+
+        layout = QVBoxLayout()
+
+        layout.addWidget(QLabel("Настройка волн"))
+        self.wave_index_spinbox = QSpinBox()
+        self.wave_index_spinbox.setRange(0, len(parent.waves) - 1)
+        self.wave_index_spinbox.valueChanged.connect(parent.select_wave)
+        layout.addWidget(QLabel("Выбор волны:"))
+        layout.addWidget(self.wave_index_spinbox)
+
+        self.amplitude_slider = QSlider(Qt.Horizontal)
+        self.amplitude_slider.setRange(10, 200)
+        self.amplitude_slider.setValue(parent.waves[0]["amplitude"])
+        self.amplitude_slider.valueChanged.connect(parent.change_amplitude)
+        layout.addWidget(QLabel("Амплитуда"))
+        layout.addWidget(self.amplitude_slider)
+
+        self.frequency_slider = QSlider(Qt.Horizontal)
+        self.frequency_slider.setRange(1, 100)
+        self.frequency_slider.setValue(int(parent.waves[0]["frequency"] * 1000))
+        self.frequency_slider.valueChanged.connect(parent.change_frequency)
+        layout.addWidget(QLabel("Частота"))
+        layout.addWidget(self.frequency_slider)
+
+        self.add_wave_button = QPushButton("Добавить волну")
+        self.add_wave_button.clicked.connect(parent.add_wave)
+        layout.addWidget(self.add_wave_button)
+
+        self.remove_wave_button = QPushButton("Удалить выбранную волну")
+        self.remove_wave_button.clicked.connect(parent.remove_selected_wave)
+        layout.addWidget(self.remove_wave_button)
+
+        self.add_random_flotes_button = QPushButton("Добавить случайные поплавки")
+        self.add_random_flotes_button.clicked.connect(parent.add_random_flotes)
+        layout.addWidget(self.add_random_flotes_button)
+
+        self.remove_all_flotes_button = QPushButton("Удалить все поплавки")
+        self.remove_all_flotes_button.clicked.connect(parent.remove_all_flotes)
+        layout.addWidget(self.remove_all_flotes_button)
+
+        self.add_fishes_button = QPushButton("Добавить рыбок")
+        self.add_fishes_button.clicked.connect(lambda: parent.generate_fishes(10))
+        layout.addWidget(self.add_fishes_button)
+
+        self.remove_all_fishes_button = QPushButton("Удалить всех рыбок")
+        self.remove_all_fishes_button.clicked.connect(parent.remove_all_fishes)
+        layout.addWidget(self.remove_all_fishes_button)
+
+        self.add_sun_button = QPushButton("Добавить солнышко")
+        self.add_sun_button.clicked.connect(parent.add_sun)
+        layout.addWidget(self.add_sun_button)
+
+        self.setLayout(layout)
+
+
+class FloteSettingsWindow(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Настройки поплавка")
+        self.setGeometry(1100, 900, 300, 200)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
+
+        self.layout = QVBoxLayout()
+
+        self.mass_slider = QSlider(Qt.Horizontal)
+        self.mass_slider.setRange(1, 50)
+        self.mass_slider.valueChanged.connect(self.update_mass)
+        self.layout.addWidget(QLabel("Масса"))
+        self.layout.addWidget(self.mass_slider)
+
+        self.volume_slider = QSlider(Qt.Horizontal)
+        self.volume_slider.setRange(1, 50)
+        self.volume_slider.valueChanged.connect(self.update_volume)
+        self.layout.addWidget(QLabel("Объем"))
+        self.layout.addWidget(self.volume_slider)
+
+        self.close_button = QPushButton("Закрыть")
+        self.close_button.clicked.connect(self.close)
+        self.layout.addWidget(self.close_button)
+
+        self.remove_button = QPushButton("Удалить поплавок")
+        self.remove_button.clicked.connect(parent.remove_flote)
+        self.layout.addWidget(self.remove_button)
+
+        self.setLayout(self.layout)
+
+    def show_flote_settings(self, flote):
+        self.flote = flote
+        self.mass_slider.setValue(flote["mass"])
+        self.volume_slider.setValue(flote["volume"])
+        self.show()
+
+    def update_mass(self, value):
+        if hasattr(self, 'flote'):
+            self.flote["mass"] = value
+
+    def update_volume(self, value):
+        if hasattr(self, 'flote'):
+            self.flote["volume"] = value
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = WaveSimulation()
+    window.show()
+    sys.exit(app.exec_())
